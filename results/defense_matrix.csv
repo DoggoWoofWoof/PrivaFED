@@ -1,0 +1,5 @@
+mode,query_attack_asr,mia_accuracy,emb_recon_cossim
+plaintext,1.0000,0.8400,0.5823
+vs_adp,0.9400,0.8400,0.5923
+he_lite,1.0000,0.5000,0.0000
+combined,0.9500,0.5000,0.0000
