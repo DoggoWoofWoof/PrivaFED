@@ -1,29 +1,23 @@
 """
-Privacy Attack Simulation Suite for Priva-Fed.
+Adversarial Simulation Suite for the Priva-Fed Retrieval System.
 
-Organized by WHAT the attacker intercepts:
+This module implements the "Red Team" attacks used to empirically evaluate the
+system's privacy guarantees. Attacks are categorized by the information intercepted
+by the adversary.
 
-Category A — Query-Vector Attacks (defended by VS-ADP noise):
-  A1. KnownTemplateAttack: Fingerprint-match noisy query embedding
-  A2. MultiQueryAveragingAttack: Average N noisy observations to denoise
+Category A — Query-Vector Attacks (Defended by VS-ADP Noise):
+   - KnownTemplateAttack: A state-of-the-art inspired fingerprinting attack that matches
+     noisy query embeddings against a pre-encoded leaked corpus.
+   - MultiQueryAveragingAttack: An adaptive attack where the adversary averages
+     multiple noisy query observations to reduce noise variance.
 
-Category B — Score/Transit Attacks (defended by HE-Lite encryption):
-  B1. MembershipInferenceAttack: From raw scores, determine if a target
-      document exists in a node's corpus
-  B2. ScoreInferenceAttack: From raw scores + query, reconstruct
-      document relevance profiles
-  B3. EmbeddingReconstructionAttack: From many (query, score) pairs,
-      reconstruct document embeddings via gradient-free optimization
-
-This creates the defense matrix:
-  +------------------+----------+----------+----------+
-  |                  | Plaintext| VS-ADP   | HE-Lite  |
-  +------------------+----------+----------+----------+
-  | Query Attacks    | Vuln.    | Defended | Vuln.    |
-  | Score Attacks    | Vuln.    | Vuln.    | Defended |
-  | Combined         | Vuln.    | Partial  | Partial  |
-  | VS-ADP + HE     | N/A      | N/A      | Full     |
-  +------------------+----------+----------+----------+
+Category B — Score and Transit Attacks (Defended by HE-Lite Encryption):
+   - MembershipInferenceAttack (MIA): Predicting if a specific document exists in 
+     a node's corpus by analyzing raw similarity scores.
+   - ScoreInferenceAttack: Reconstructing relevance profiles from intercepted 
+     document-query scores.
+   - EmbeddingReconstructionAttack: A powerful score-probing attack that reconstructs
+     a target document's embedding via least-squares optimization.
 """
 
 import numpy as np
@@ -32,21 +26,23 @@ from src.ground_truth import extract_ground_truth
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# CATEGORY A: Query-Vector Attacks (VS-ADP defends)
+# CATEGORY A: Query-Vector Attacks (Target: VS-ADP)
 # ═══════════════════════════════════════════════════════════════════════
 
 class KnownTemplateAttack:
     """
-    Strongest query-level attack (SOTA-inspired).
+    Simulates an adversary with access to the document corpus but not the retrieval index.
     
-    Attacker pre-generates ALL possible queries from leaked corpus,
-    encodes them, and matches against intercepted (noisy) query vector.
-    
-    Plaintext ASR = 100%. Degrades with VS-ADP noise.
-    HE-Lite provides NO defense (query vector is unencrypted).
+    The attacker pre-generates a set of 'fingerprint' queries from the corpus.
+    When a user query is intercepted, the attacker finds the closest fingerprint.
     """
 
     def __init__(self, nodes, encoder_model):
+        """
+        Args:
+            nodes: List of nodes to build the fingerprint index from.
+            encoder_model: The SentenceTransformer model used for encoding.
+        """
         self.model = encoder_model
         self.fingerprints = []
         data_roots = {node.org_name: node.data_dir for node in nodes}
@@ -58,14 +54,14 @@ class KnownTemplateAttack:
                 (item['target_org'], item['target_file'], item['query']))
             queries.append(item['query'])
 
-        print(f"[KnownTemplateAttack] Encoding {len(queries)} candidate queries...")
+        # Build a FAISS index of all possible query fingerprints
         vecs = self.model.encode(queries).astype('float32')
         faiss.normalize_L2(vecs)
         self.index = faiss.IndexFlatIP(vecs.shape[1])
         self.index.add(vecs)
-        print(f"[KnownTemplateAttack] Fingerprint index: {self.index.ntotal} vectors.")
 
     def attack(self, query_vector, target_org, target_file):
+        """Returns (is_successful, top_match_score)."""
         vec = query_vector.copy().astype('float32').reshape(1, -1)
         faiss.normalize_L2(vec)
         scores, indices = self.index.search(vec, 1)
@@ -73,6 +69,7 @@ class KnownTemplateAttack:
         return (org == target_org and fn == target_file), float(scores[0][0])
 
     def attack_top_k(self, query_vector, target_org, target_file, k=5):
+        """Returns (was_in_top_k, rank_position)."""
         vec = query_vector.copy().astype('float32').reshape(1, -1)
         faiss.normalize_L2(vec)
         scores, indices = self.index.search(vec, k)
@@ -85,10 +82,8 @@ class KnownTemplateAttack:
 
 class MultiQueryAveragingAttack:
     """
-    Adaptive attacker averages N noisy query observations to denoise.
-    
-    More observations -> noise variance decreases by 1/sqrt(N).
-    Defense: Query rate-limiting, budget constraints.
+    Simulates an adaptive adversary that attempts to 'denoise' VS-ADP by averaging
+    multiple observations of the same logical query.
     """
 
     def __init__(self, template_attack, privacy_adapter, ref_node):
@@ -97,6 +92,10 @@ class MultiQueryAveragingAttack:
         self.ref_node = ref_node
 
     def attack_with_n_observations(self, query_text, target_org, target_file, n=1):
+        """
+        Issue N noisy versions of the query and average them before performing
+        the template fingerprinting attack.
+        """
         plain_vec = self.ref_node.encode_query(query_text)
         noisy_vecs = [self.pa.add_noise_to_vector(plain_vec.copy()) for _ in range(n)]
         avg_vec = np.mean(noisy_vecs, axis=0).astype('float32')
@@ -105,33 +104,22 @@ class MultiQueryAveragingAttack:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# CATEGORY B: Score/Transit Attacks (HE-Lite defends)
+# CATEGORY B: Score/Transit Attacks (Target: HE-Lite)
 # ═══════════════════════════════════════════════════════════════════════
 
 class MembershipInferenceAttack:
     """
     Membership Inference Attack (MIA).
     
-    Threat model: Attacker intercepts (query, raw_scores) from a node.
-    Goal: Determine if a specific target document is in that node's corpus.
-    
-    Method: If the max score for a query targeting document D exceeds a
-    threshold, attacker concludes D is in the corpus.
-    
-    Plaintext: High scores for members, lower for non-members -> vulnerable.
-    HE-Lite: Scores encrypted in transit -> attacker sees ciphertext blobs.
-    VS-ADP: Scores are real (noise is on query, not scores) -> still vulnerable.
+    Determines if a document is present in a node's local database by 
+    monitoring the similarity scores returned for high-relevance queries.
     """
 
     def __init__(self, threshold=0.5):
         self.threshold = threshold
 
     def calibrate(self, member_scores, nonmember_scores):
-        """
-        Set threshold to maximize accuracy.
-        member_scores: max scores when querying for documents IN the corpus.
-        nonmember_scores: max scores when querying for documents NOT in the corpus.
-        """
+        """Sets the optimal threshold for distinguishing members from non-members."""
         all_data = [(s, 1) for s in member_scores] + [(s, 0) for s in nonmember_scores]
         all_data.sort(key=lambda x: x[0])
 
@@ -148,40 +136,21 @@ class MembershipInferenceAttack:
         return best_thresh, best_acc
 
     def attack(self, max_score):
-        """Given max similarity score for a query, predict membership."""
+        """Predicts membership based on the similarity score."""
         return max_score >= self.threshold
 
 
 class ScoreInferenceAttack:
     """
-    Score Inference Attack.
-    
-    Threat model: Eavesdropper intercepts (query, document_scores) in transit.
-    Goal: Build relevance profiles — which documents are relevant to which queries.
-    
-    Method: For each intercepted (query, scores) pair, rank documents by score.
-    Over many queries, build a document-query relevance matrix.
-    A document's relevance profile reveals its content.
-    
-    Plaintext: Full raw scores visible -> attacker gets exact relevance matrix.
-    HE-Lite: Scores encrypted -> attacker gets no information.
-    VS-ADP: Scores are real (noise on query causes imprecise retrieval,
-            but returned scores are exact) -> still partially vulnerable.
-    
-    Metric: Profile Accuracy = fraction of correctly identified top-1 documents
-    across all intercepted queries.
+    Builds relevance profiles by monitoring (Query, Document-Score) pairs.
     """
 
     def __init__(self):
-        self.intercepted = []  # list of (query_text, [(org, filename, score)])
+        self.intercepted = []  
 
     def intercept(self, query_text, results, encrypted=False):
-        """
-        Record an intercepted query-response pair.
-        If encrypted=True, attacker sees only ciphertext -> no useful info.
-        """
+        """Record an intercepted interaction. If encrypted, no data is logged."""
         if encrypted:
-            # Attacker sees opaque ciphertext blob
             self.intercepted.append((query_text, None))
         else:
             ranked = sorted(
@@ -191,19 +160,14 @@ class ScoreInferenceAttack:
             self.intercepted.append((query_text, ranked))
 
     def compute_profile_accuracy(self, ground_truth):
-        """
-        For each intercepted query, check if the top-1 result matches
-        the ground truth target document.
-        
-        Returns: accuracy (float), n_usable (int)
-        """
+        """Calculates the adversary's Accuracy in predicting a query's top-1 target."""
         correct, total = 0, 0
         gt_lookup = {item['query']: (item['target_org'], item['target_file'])
                      for item in ground_truth}
 
         for query, ranked in self.intercepted:
             if ranked is None:
-                continue  # Encrypted — attacker learns nothing
+                continue 
             if query not in gt_lookup:
                 continue
             total += 1
@@ -217,22 +181,8 @@ class ScoreInferenceAttack:
 
 class EmbeddingReconstructionAttack:
     """
-    Embedding Reconstruction via Score Probing.
-    
-    Threat model: Attacker can issue arbitrary queries and observe exact scores.
-    Goal: Reconstruct a target document's embedding from (query, score) pairs.
-    
-    Method (simplified gradient-free):
-    1. Issue K random probe queries
-    2. Observe similarity scores s_i = cos(probe_i, target_emb)
-    3. Solve for target_emb using least-squares on the cosine constraints
-    
-    This is the strongest score-based attack. Even partial score visibility
-    enables reconstruction.
-    
-    Plaintext: Full scores -> full reconstruction
-    HE-Lite: Encrypted scores -> reconstruction impossible
-    VS-ADP: Scores are real but from noisy queries -> partial reconstruction
+    A powerful score-probing attack that attempts to reconstruct a document's 
+    entire embedding vector using a least-squares projection of probe query scores.
     """
 
     def __init__(self, embedding_dim=384, n_probes=100):
@@ -241,20 +191,14 @@ class EmbeddingReconstructionAttack:
 
     def attack(self, score_oracle, true_embedding=None):
         """
-        score_oracle: function(query_vec) -> similarity score for target doc
-        true_embedding: ground truth for measuring reconstruction quality
-        
-        Returns: reconstructed_embedding, cosine_sim_to_true
+        Reconstructs the embedding via random projections and observes the oracle response.
         """
-        # Generate random probe queries
+        # 1. Probing Phase
         probes = np.random.randn(self.n_probes, self.d).astype('float32')
         faiss.normalize_L2(probes)
-
-        # Observe scores
         scores = np.array([score_oracle(probes[i]) for i in range(self.n_probes)])
 
-        # Least-squares reconstruction: target ~= sum(score_i * probe_i)
-        # This is a projection-based approximation
+        # 2. Reconstruction Phase (Sum-of-Projections)
         reconstructed = np.zeros(self.d, dtype='float32')
         for i in range(self.n_probes):
             reconstructed += scores[i] * probes[i]
@@ -272,7 +216,7 @@ class EmbeddingReconstructionAttack:
 
 
 def compute_reconstruction_error(original_vec, noisy_vec):
-    """Cosine distance: 0 = identical, 1 = orthogonal."""
+    """Calculates the geometric divergence between two vectors (1 - cosine similarity)."""
     a = original_vec.flatten()
     b = noisy_vec.flatten()
     cos_sim = np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-10)

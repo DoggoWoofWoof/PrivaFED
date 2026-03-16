@@ -1,5 +1,6 @@
-mode,query_attack_asr,mia_accuracy,emb_recon_cossim
-plaintext,1.0000,0.8400,0.5823
-vs_adp,0.9400,0.8400,0.5923
-he_lite,1.0000,0.5000,0.0000
-combined,0.9500,0.5000,0.0000
+mode,query_attack_asr,mia_accuracy,score_inf_acc,emb_recon_cossim
+plaintext,1.0000,1.0000,0.9000,0.5933
+vs_adp,0.6400,1.0000,0.8800,0.5845
+he_lite,1.0000,0.5000,0.0000,0.0000
+lsh,1.0000,1.0000,0.8600,0.5831
+combined,0.6800,0.5000,0.0000,0.0000

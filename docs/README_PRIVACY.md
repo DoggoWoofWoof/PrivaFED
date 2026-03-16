@@ -1,32 +1,35 @@
-# Priva-Fed Privacy Documentation
+# Priva-Fed Documentation Index
 
-This directory contains the detailed analysis, benchmarking results, and metric explanations for the Priva-Fed framework.
+This directory contains the technical documentation suite for the Priva-Fed framework, summarizing the journey from synthetic dataset generation to a hardened, privacy-preserving federated retrieval system.
 
-## 📄 Key Documents
+## 📄 Core Documentation
 
 ### 1. [Benchmark Results & Walkthrough](benchmark_results.md)
-**Start here.** A comprehensive walkthrough of the final v4 benchmark.
-- **Defense Matrix**: Shows how the combined pipeline defends against both query and score attacks.
-- **Results Table**: Full privacy-utility trade-off data.
-- **Issues Fixed**: Summary of the 12 critical fixes implemented.
+**Essential Reading.** Contains the absolute final v4 empirical results:
+- **Defense Matrix**: Verification of cryptographic and noise-based defenses.
+- **Utility-Privacy Trade-off**: The definitive results table.
+- **Recommended Operating Point**: Rationale for the `combined ns=2.0` configuration.
 
-### 2. [Metrics Explained](metrics_explained.md)
- detailed definitions of all metrics used in the paper/project:
-- **Utility**: Recall@k, MRR, NDCG, Semantic Drift.
-- **Privacy**: Attack Success Rate (ASR), Score Inference (ScoreInf), Membership Inference (MIA), etc.
-- **Why it matters**: Justification for why each metric was chosen.
+### 2. [Privacy Design & Threat Model](privacy_analysis.md)
+Theoretical justification and adversarial analysis:
+- Details on **VS-ADP** and **HE-Lite**.
+- Categorization of attackers (Query-intercept vs. Score-intercept).
+- Epsilon framing and RDP mechanism explanation.
 
-### 3. [Privacy Analysis](privacy_analysis.md)
-Initial theoretical analysis of the privacy requirements and threat model.
-- Analyzes GDPR compliance needs.
-- Defines the local vs. global adversary model.
-- Justifies the choice of VS-ADP and HE-Lite.
+### 3. [Metrics Guide](metrics_explained.md)
+Glossary and mathematical definitions of performance indicators:
+- **Utility**: R@1, MRR, NDCG, Semantic Drift.
+- **Privacy**: ASR, MIA, ScoreInf, Reconstruction CosSim.
 
 ### 4. [Baseline Analysis](baseline_analysis.md)
-Analysis of the initial system performance before privacy mechanisms were added.
-- Establishes the "gold standard" utility baseline.
+Historical context of how the 90.0% R@1 "Gold Standard" was achieved through Hybrid RRF and Cross-Encoder re-ranking.
 
-## 📂 Source Code References
-- `src/privacy.py`: Implementation of VS-ADP and HE-Lite.
-- `src/attack.py`: The attack suite (Known-Template, MIA, Reconstruction).
-- `src/benchmark_full.py`: The main benchmarking script.
+### 5. [Project Status Report](project_status_report.md)
+High-level summary of phase completions, key findings, and future work.
+
+---
+
+## 🏗️ Technical Implementation
+- **Mechanism Implementation**: See `src/privacy.py`.
+- **Adversarial Simulation**: See `src/attack.py`.
+- **Protocol Orchestration**: See `src/hub.py` and `src/local_retrieval.py`.

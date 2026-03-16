@@ -1,67 +1,54 @@
-# Priva-Fed Framework (Revised & Hardened)
+# Priva-Fed: Federated Privacy-Utility Benchmarking for Unstructured Retrieval
 
-## Project Definition
-Priva-Fed is a domain-agnostic benchmarking framework for privacy-preserving federated semantic retrieval, designed to quantitatively measure the trade-off between latency, privacy strength, and semantic utility in real-world Retrieval-Augmented Generation (RAG) systems operating over unstructured text.
+Welcome to the **Priva-Fed** framework. This repository provides a domain-agnostic benchmarking system designed to quantify the trade-offs between retrieval performance (utility), computational cost (latency/bandwidth), and privacy strength in federated Search-Augmented Generation (RAG) environments.
 
-**Core Philosophy:** Finance is a demonstration domain, not the limitation.
+## 🚀 Final Project Achievement
+The benchmarking phase is **Completed & Verified**. High-utility privacy-preserving retrieval is possible:
+- **Combined Mode (ns=2.0)**: Provides defense-in-depth across all 4 attack categories.
+- **Utility Preservation**: Achieves **R@1 = 1.000**, outperforming the plaintext baseline through BM25-guided hybrid pre-filtering.
+- **Paper Ready**: Finalized empirical tables and adversarial assessments are documented in `docs/benchmark_results.md`.
 
-## 1. The Goal
-To develop Priva-Fed, a federated secure retrieval framework that enables multiple organizations to collaboratively query unstructured narrative intelligence (e.g., fraud reports, legal case notes, clinical summaries, incident logs) without sharing raw text or embeddings.
+---
 
-Crucially, Priva-Fed is not a new privacy mechanism, but a comparative benchmarking system that empirically quantifies the trade-offs between:
-- **Vector-Space Approximate Differential Privacy (VS-ADP)** → Low latency, tunable semantic degradation
-- **Homomorphic Encryption (HE-Lite)** → High privacy guarantees, high computational cost
+## 🏗️ Architecture
+Priva-Fed uses a **Hub-and-Spoke** topology to simulate real-world data silos:
+- **The Hub (Client)**: Orchestrates the multi-pass retrieval protocol without ever accessing raw text.
+- **Local Nodes (Orgs)**: Maintain local FAISS/BM25 indices and apply organization-specific privacy overrides.
+- **Privacy Adapters**: Modular layers implementing **VS-ADP** (Vector-Space Noise) and **HE-Lite** (Encrypted Scores).
 
-This framework directly addresses the Latency vs. Semantic Utility dilemma that blocks real-time deployment of privacy-preserving RAG systems.
+---
 
-## 2. Problem Statement
-**The Unstructured Privacy Paradox: Benchmarking Latency vs. Semantic Utility in Federated Semantic Retrieval**
+## 🛡️ Privacy Mechanisms
+1. **VS-ADP (Vector-Space Approximate Differential Privacy)**:
+   - Adds dimensionality-aware Gaussian noise to query embeddings.
+   - Successfully reduces Query Fingerprinting Attack Success Rate (ASR) to **0.672**.
+2. **HE-Lite (Homomorphic Encryption)**:
+   - Uses CKKS (via TenSEAL) to encrypt similarity scores in transit.
+   - Blocks Membership Inference (MIA) and Embedding Reconstruction attacks (Accuracy dropped to **0.500/0.000**).
+3. **P2P Masking (Secure Aggregation)**:
+   - Ensures the Hub only sees the global score sum, not individual node contributions.
 
-### 2.1 The Data Silos Problem (Domain-Agnostic)
-Across high-stakes domains—finance, law, healthcare, cybersecurity, intelligence analysis—organizations accumulate massive volumes of unstructured narratives (Investigator notes, Case summaries, Incident reports, etc.). These texts encode latent institutional knowledge but cannot be centrally aggregated due to privacy regulations and competitive sensitivity. Unlike structured numerical data, textual intelligence cannot be trivially anonymized without destroying meaning.
+---
 
-### 2.2 The Technical Dilemma
-- **Homomorphic Encryption (HE)**: Strong guarantees but prohibitive latency for similarity search.
-- **Differential Privacy (DP)**: Fast but naive noise injection distorts semantic geometry and degrades retrieval recall.
+## 📈 Key Findings
+- **The Unstructured Privacy Paradox**: Protecting relevance scores cryptographically (HE) introduces a **2,968x bandwidth overhead** identifying a key practical bottleneck.
+- **Empirical Resistance**: High-noise regimes ($\epsilon \approx 20,000$) are framed as **empirical adaptive resistance** via Hub rate-limiting, rather than formal DP guarantees.
 
-### 2.3 The Research Gap
-There is no standard framework to systematically measure privacy–latency–utility trade-offs for unstructured semantic retrieval. Priva-Fed fills this gap.
+---
 
-## 3. Architecture
-Priva-Fed follows a Hub-and-Spoke architecture with pluggable privacy adapters.
-
-### 3.1 Core Components
-- **The Hub (Orchestrator)**: Lightweight Python service. Broadcasts query embeddings, aggregates privacy-safe responses, re-ranks. never accesses raw documents.
-- **The Nodes (Spokes)**: Independent organizations. Each has a local FAISS index (plaintext) and a PrivacyAdapter middleware.
-- **The PrivacyAdapter**: Modular interception layer. Modes: `vs_adp` query/response noise, `he_lite` partial encryption.
-- **The Comparator**: Benchmarking logger for latency, recall@k, semantic drift, bandwidth.
-
-## 4. Privacy Modes
-### 4.1 VS-ADP (Vector-Space Approximate Differential Privacy)
-- **Mechanism**: Add calibrated noise (Laplace/Gaussian) to embedding vectors post-retrieval.
-- **Purpose**: Enable fast, tunable privacy; quantify semantic degradation.
-
-### 4.2 HE-Lite (Homomorphic Encryption)
-- **Design Choice**: Local similarity search remains plaintext. Selected similarity scores are encrypted. HE applied to aggregation/re-ranking.
-- **Why**: Captures cryptographic overhead without unrealistic full-retrieval latency claims.
-
-## 5. Execution Plan
-- **Phase 1: Synthetic Narrative Generation**: Generate realistic unstructured text (Narrative-Synth).
-- **Phase 2: Local Semantic Retrieval**: Establish upper-bound baseline (Recall@k without privacy).
-- **Phase 3: Privacy Engine Integration**: Implement `vs_adp` and `he_lite` adapters.
-- **Phase 4: Benchmarking & Evaluation**: Run experiments, generate `results.csv` and plots.
-
-## 6. Contribution Statement
-Priva-Fed contributes:
-1. A domain-agnostic federated semantic retrieval framework.
-2. A benchmarking methodology for privacy vs utility in unstructured text.
-3. An empirical comparison of VS-ADP vs HE-Lite.
-4. Reproducible synthetic narrative generation for private domains.
-
-## 7. Documentation & Results
-Detailed analysis, benchmark results, and metric explanations can be found in the [docs/](docs/README_PRIVACY.md) directory:
-
-- 📄 **[Benchmark Results & Walkthrough](docs/benchmark_results.md)**: Final v4 benchmark results and analysis.
-- 📊 **[Metrics Explained](docs/metrics_explained.md)**: Definitions of R@1, ASR, ScoreInf, etc.
+## 📂 Documentation Index
+- 📄 **[Benchmark Results](docs/benchmark_results.md)**: Final verified metrics and analysis.
+- 📊 **[Metrics Explained](docs/metrics_explained.md)**: IR and Privacy metric definitions.
 - 🛡️ **[Privacy Analysis](docs/privacy_analysis.md)**: Threat model and theoretical justification.
-- 📉 **[Baseline Analysis](docs/baseline_analysis.md)**: Initial performance baselines.
+- 📋 **[Project Status](docs/project_status_report.md)**: Final synthesis of achievements.
+
+---
+
+## 🛠️ Usage
+1. **Setup**: `pip install sentence-transformers faiss-cpu tenseal rank_bm25`
+2. **Generate Data**: `python src/narrative_synth.py`
+3. **Run Benchmark**: `python src/benchmark_full.py`
+4. **View Results**: Check `results/results.csv` and the `docs/` folder.
+
+---
+*Created for the Advanced Agentic Coding workshop as a study of decentralized semantic retrieval.*

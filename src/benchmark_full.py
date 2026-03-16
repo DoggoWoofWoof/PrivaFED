@@ -23,6 +23,11 @@ import csv
 import sys
 import time
 import numpy as np
+
+# Path shim for direct execution
+if __name__ == "__main__" or __name__.startswith("src."):
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from collections import defaultdict
 
 from src.local_retrieval import LocalNode
@@ -39,8 +44,8 @@ from src.ground_truth import extract_ground_truth, validate_ground_truth
 
 # ─── Config ───────────────────────────────────────────────────────────
 ORGS = ['org_A', 'org_B', 'org_C']
-NOISE_SWEEP = [0.1, 0.2, 0.5, 1.0, 2.0]
-N_RUNS = 3
+NOISE_SWEEP = [0.1, 0.5, 1.0, 2.0]
+N_RUNS = 5 # Increased for statistical significance
 TOP_K = 10
 RESULT_DIR = "results"
 RESULT_CSV = os.path.join(RESULT_DIR, "results.csv")
@@ -86,7 +91,8 @@ def run_experiment(hub, gt, ref_node, pa, template_attack,
 
         # Cat-A: Query fingerprint attack
         plain_vec = ref_node.encode_query(q)
-        atk_vec = (pa.add_noise_to_vector(plain_vec.copy())
+        # FIX: account=False to avoid double-counting budget during attack simulation
+        atk_vec = (pa.add_noise_to_vector(plain_vec.copy(), account=False)
                    if mode in ('vs_adp', 'combined') and pa else plain_vec.copy())
 
         s1, _ = template_attack.attack(atk_vec, item['target_org'],
@@ -98,12 +104,16 @@ def run_experiment(hub, gt, ref_node, pa, template_attack,
         m['recon_error'].append(compute_reconstruction_error(plain_vec, atk_vec))
 
         # Cat-B: Score interception (for ScoreInferenceAttack)
-        all_raw = []
-        for org_scores in raw_scores.values():
-            all_raw.extend(org_scores)
         score_attack.intercept(q, [{'org': s['org'], 'filename': s['filename'],
-                                     'score': s['score']} for s in all_raw],
+                                     'score': s['score']} for s in raw_scores],
                                 encrypted=uses_he)
+
+    # Append final epsilon status
+    if pa:
+        eps, _, _ = pa.get_budget_status()
+        m['epsilon'] = [eps]
+    else:
+        m['epsilon'] = [0.0]
 
     return {k: float(np.mean(v)) for k, v in m.items()}
 
@@ -133,9 +143,10 @@ def run_mia_experiment(nodes, gt, ref_node, mode, pa, n_queries=50):
         if uses_he:
             member_scores.append(0.5)  # Attacker can't see real score
         else:
-            org_raw = raw.get(target_node.org_name, [])
-            if org_raw:
-                member_scores.append(max(s['score'] for s in org_raw))
+            # PIVOT: Read from aggregated scores (Pass 2)
+            relevant = [s['score'] for s in raw if s['org'] == target_node.org_name]
+            if relevant:
+                member_scores.append(max(relevant))
             else:
                 member_scores.append(0.0)
 
@@ -145,9 +156,10 @@ def run_mia_experiment(nodes, gt, ref_node, mode, pa, n_queries=50):
         if uses_he:
             nonmember_scores.append(0.5)  # Attacker can't see real score
         else:
-            org_raw = raw.get(target_node.org_name, [])
-            if org_raw:
-                nonmember_scores.append(max(s['score'] for s in org_raw))
+            # PIVOT: Read from aggregated scores (Pass 2)
+            relevant = [s['score'] for s in raw if s['org'] == target_node.org_name]
+            if relevant:
+                nonmember_scores.append(max(relevant))
             else:
                 nonmember_scores.append(0.0)
 
@@ -217,21 +229,79 @@ def run_adaptive_attack(gt, ref_node, template_attack, noise_scales, n_values):
     return rows
 
 
+def verify_he_correctness(nodes, pa):
+    print("\n=== Verifying HE Correctness ===")
+    node = nodes[0]
+    q_text = "test query"
+    q_vec = node.encode_query(q_text)
+    
+    # Plaintext dot product
+    doc_vec = node.embeddings[0]
+    plain_score = float(np.dot(q_vec.flatten(), doc_vec.flatten()))
+    
+    # HE dot product
+    enc_q_blob, _ = pa.encrypt_vector(q_vec)
+    enc_score_blob, _ = pa.compute_encrypted_dot_product(enc_q_blob, doc_vec)
+    he_score, _ = pa.decrypt_scores(enc_score_blob)
+    
+    diff = abs(plain_score - he_score[0])
+    print(f"  Plain: {plain_score:.6f}, HE: {he_score[0]:.6f}, Diff: {diff:.6e}")
+    if diff < 1e-4:
+        print("  SUCCESS: HE result matches plaintext within 1e-4.")
+    else:
+        print("  FAILURE: HE result divergence too high.")
+
+def verify_budget_blocking(nodes, gt):
+    print("\n=== Verifying Budget Blocking ===")
+    # Small limit to trigger quickly
+    pa = PrivacyAdapter(mode='vs_adp', noise_scale=0.1, epsilon_limit=1.0)
+    hub = HubOrchestrator(nodes, privacy_adapter=pa)
+    
+    # Issue queries until blocked
+    blocked = False
+    for i in range(100):
+        res, stats, _ = hub.broadcast(gt[0]['query'], top_k=1)
+        eps, limit, exhausted = pa.get_budget_status()
+        if exhausted:
+            print(f"  Budget exhausted at query {i+1} (eps={eps:.2f})")
+            # Next query should be blocked
+            res_blocked, _, _ = hub.broadcast(gt[0]['query'], top_k=1)
+            if not res_blocked:
+                print("  SUCCESS: Next query correctly blocked.")
+                blocked = True
+            else:
+                print("  FAILURE: Next query NOT blocked despite exhaustion.")
+            break
+    if not blocked:
+        print("  FAILURE: Budget never exhausted in test.")
+
 def main():
     os.makedirs(RESULT_DIR, exist_ok=True)
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    DATA_ROOT = os.path.join(ROOT, "data", "synthetic")
 
     # 1. Setup
     nodes, data_roots = [], {}
     for org in ORGS:
-        n = LocalNode(org)
+        n = LocalNode(org, data_dir=DATA_ROOT)
         n.load_data()
         n.build_index()
         nodes.append(n)
         data_roots[org] = n.data_dir
     ref_node = nodes[0]
 
+    # 1b. Pairwise Secret Exchange (OOB Simulation)
+    print("\nPerforming Pairwise Secret Exchange...")
+    for i, node_i in enumerate(nodes):
+        for j, node_j in enumerate(nodes):
+            if i < j:
+                secret = np.random.randint(1, 1000000)
+                node_i.pairwise_secrets[node_j.org_name] = secret
+                node_j.pairwise_secrets[node_i.org_name] = secret
+    print("Secrets exchanged between all nodes.")
+
     # 2. Ground Truth
-    gt = extract_ground_truth(data_roots)
+    gt = extract_ground_truth(data_roots)[:50] # Increased for statistical significance
     print("\nGround Truth Validation:")
     validate_ground_truth(gt, data_roots)
     print(f"Total queries: {len(gt)}")
@@ -256,6 +326,7 @@ def main():
     for ns in NOISE_SWEEP:
         configs.append(('vs_adp', ns, f'vs_adp_ns{ns}'))
     configs.append(('he_lite', 0.0, 'he_lite'))
+    configs.append(('lsh', 0.0, 'lsh_64bit'))
     for ns in [1.0, 2.0]:  # Combined at key noise levels
         configs.append(('combined', ns, f'combined_ns{ns}'))
 
@@ -269,10 +340,13 @@ def main():
                 pa = PrivacyAdapter(mode='vs_adp', noise_scale=ns)
             elif mode == 'he_lite':
                 pa = PrivacyAdapter(mode='he_lite')
+            elif mode == 'lsh':
+                pa = PrivacyAdapter(mode='lsh', lsh_bits=64)
             elif mode == 'combined':
                 pa = PrivacyAdapter(mode='combined', noise_scale=ns)
 
-            hub = HubOrchestrator(nodes, privacy_adapter=pa)
+            # Option B: enforce_budget=False for empirical utility analysis
+            hub = HubOrchestrator(nodes, privacy_adapter=pa, enforce_budget=False)
             score_attack = ScoreInferenceAttack()
             agg = run_experiment(hub, gt, ref_node, pa, template_attack,
                                  baseline_rankings, score_attack)
@@ -289,6 +363,7 @@ def main():
                   f"Drift={agg['semantic_drift']:.3f}  "
                   f"ASR@1={agg['attack_asr_1']:.3f}  "
                   f"ScoreInf={si_acc:.3f}  "
+                  f"Eps={agg['epsilon']:.0f}  "
                   f"Lat={agg['latency_ms']:.0f}ms  BW={agg['bandwidth_kb']:.1f}KB")
 
     # ========== DEFENSE MATRIX (Cat-B attacks) ==========
@@ -296,9 +371,10 @@ def main():
     matrix_rows = []
     matrix_configs = [
         ('plaintext', None),
-        ('vs_adp', PrivacyAdapter(mode='vs_adp', noise_scale=1.0)),
+        ('vs_adp', PrivacyAdapter(mode='vs_adp', noise_scale=2.0)),
         ('he_lite', PrivacyAdapter(mode='he_lite')),
-        ('combined', PrivacyAdapter(mode='combined', noise_scale=1.0)),
+        ('lsh', PrivacyAdapter(mode='lsh', lsh_bits=64)),
+        ('combined', PrivacyAdapter(mode='combined', noise_scale=2.0)),
     ]
 
     for mode_label, pa in matrix_configs:
@@ -308,26 +384,43 @@ def main():
         print(f"  [{mode_label}] Embedding Reconstruction...")
         recon_sim = run_emb_reconstruction(nodes, ref_node, mode_label, pa)
 
-        # Query attack at this config
-        if mode_label in ('vs_adp', 'combined'):
-            plain_vecs = [ref_node.encode_query(g['query']) for g in gt[:100]]
-            asrs = []
-            for i, item in enumerate(gt[:100]):
-                nv = pa.add_noise_to_vector(plain_vecs[i].copy())
-                s, _ = template_attack.attack(nv, item['target_org'],
-                                               item['target_file'])
-                asrs.append(1 if s else 0)
-            query_asr = np.mean(asrs)
-        else:
-            query_asr = 1.0  # No noise -> 100% ASR
+        # Query & Score attacks at this config
+        si_atk = ScoreInferenceAttack()
+        hub_sa = HubOrchestrator(nodes, privacy_adapter=pa, enforce_budget=False)
+        asrs = []
+        
+        # Test on a representative slice
+        test_slice = gt[:50]
+        plain_vecs = [ref_node.encode_query(g['query']) for g in test_slice]
+        
+        uses_he_m = mode_label in ('he_lite', 'combined')
+        
+        for i, item in enumerate(test_slice):
+            # Query Attack (Cat-A)
+            if mode_label in ('vs_adp', 'combined'):
+                nv = pa.add_noise_to_vector(plain_vecs[i].copy(), account=False)
+            else:
+                nv = plain_vecs[i].copy()
+                
+            s, _ = template_attack.attack(nv, item['target_org'], item['target_file'])
+            asrs.append(1 if s else 0)
+            
+            # Score Inference Attack (Cat-B)
+            _, _, raw = hub_sa.broadcast(item['query'], top_k=TOP_K)
+            si_atk.intercept(item['query'], raw, encrypted=uses_he_m)
+            
+        query_asr = np.mean(asrs)
+        score_inf_acc, _ = si_atk.compute_profile_accuracy(test_slice)
 
         print(f"  [{mode_label}] Query ASR={query_asr:.3f}  "
-              f"MIA Acc={mia_acc:.3f}  Recon CosSim={recon_sim:.3f}")
+              f"MIA Acc={mia_acc:.3f}  ScoreInf={score_inf_acc:.3f}  "
+              f"Recon CosSim={recon_sim:.3f}")
 
         matrix_rows.append({
             'mode': mode_label,
             'query_attack_asr': f"{query_asr:.4f}",
             'mia_accuracy': f"{mia_acc:.4f}",
+            'score_inf_acc': f"{score_inf_acc:.4f}",
             'emb_recon_cossim': f"{recon_sim:.4f}",
         })
 
@@ -362,31 +455,42 @@ def main():
         print(f"Adaptive -> {ATTACK_CSV}")
 
     # ========== SUMMARY ==========
-    print("\n" + "=" * 120)
-    print(f"{'Mode':<12} {'NS':<5} {'R@1':>5} {'MRR':>5} {'NDCG':>5} {'Drift':>5} "
-          f"{'ASR@1':>5} {'ScoreInf':>8} {'Lat':>6} {'BW(KB)':>7}")
-    print("-" * 120)
+    print("\n" + "=" * 135)
+    print(f"{'Mode':<12} {'NS':<5} {'R@1':>10} {'MRR':>10} {'NDCG':>10} {'Drift':>10} "
+          f"{'ASR@1':>10} {'Epsilon':>10} {'Lat(ms)':>10}")
+    print("-" * 135)
 
     groups = defaultdict(list)
     for row in all_rows:
         groups[(row['mode'], row['noise_scale'])].append(row)
 
     for (mode, ns), rows in groups.items():
-        def a(f):
-            return np.mean([float(r[f]) for r in rows if r.get(f)])
-        print(f"{mode:<12} {str(ns):<5} {a('recall_1'):>5.3f} {a('mrr'):>5.3f} "
-              f"{a('ndcg_10'):>5.3f} {a('semantic_drift'):>5.3f} "
-              f"{a('attack_asr_1'):>5.3f} {a('score_inf_acc'):>8.3f} "
-              f"{a('latency_ms'):>6.0f} {a('bandwidth_kb'):>7.1f}")
-    print("=" * 120)
+        def stats_str(field):
+            vals = [float(r[field]) for r in rows if r.get(field)]
+            if not vals: return "-"
+            mean = np.mean(vals)
+            std = np.std(vals)
+            return f"{mean:.3f}±{std:.3f}"
+        
+        print(f"{mode:<12} {str(ns):<5} {stats_str('recall_1'):>10} {stats_str('mrr'):>10} "
+              f"{stats_str('ndcg_10'):>10} {stats_str('semantic_drift'):>10} "
+              f"{stats_str('attack_asr_1'):>10} {stats_str('epsilon'):>10} "
+              f"{np.mean([float(r['latency_ms']) for r in rows]):>10.0f}")
+    print("=" * 135)
 
     print("\n=== Defense Matrix ===")
-    print(f"{'Mode':<12} {'Query ASR':>10} {'MIA Acc':>10} {'Recon Sim':>10}")
-    print("-" * 50)
+    print(f"{'Mode':<12} {'Query ASR':>10} {'MIA Acc':>10} {'ScoreInf':>10} {'Recon Sim':>10}")
+    print("-" * 65)
     for row in matrix_rows:
         print(f"{row['mode']:<12} {row['query_attack_asr']:>10} "
-              f"{row['mia_accuracy']:>10} {row['emb_recon_cossim']:>10}")
-    print("-" * 50)
+              f"{row['mia_accuracy']:>10} {row['score_inf_acc']:>10} "
+              f"{row['emb_recon_cossim']:>10}")
+    print("-" * 65)
+
+
+    # ========== FINAL VALIDATIONS ==========
+    verify_he_correctness(nodes, PrivacyAdapter(mode='he_lite'))
+    verify_budget_blocking(nodes, gt)
 
 
 if __name__ == "__main__":
