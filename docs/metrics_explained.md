@@ -11,6 +11,7 @@ These metrics measure how much semantic information is preserved after privacy-p
 | **Recall@1 (R@1)** | Fraction of queries where the target doc is ranked #1. | Primary utility metric for "perfect" accuracy. |
 | **Recall@10 (R@10)** | Fraction of queries where target is in top-10. | Measures general findability. |
 | **MRR** | **Mean Reciprocal Rank**. Average of $1/\text{rank}$. | Highly sensitive to document position. |
+| **Rank Correlation** | Spearman/Kendall correlation of result rankings. | Measures structural preservation of relative orderings compared to baseline. |
 | **Semantic Drift** | Jaccard overlap between baseline top-10 and noisy top-10. | Measures how much the *entire result set* shifted. |
 
 > [!NOTE]
@@ -23,6 +24,7 @@ These metrics measure the empirical strength of the system against specific adve
 | Metric | Attack Category | Interpretation |
 | :--- | :--- | :--- |
 | **ASR** | **Category A: Query Fingerprinting**. | 1.0 = Breach; 0.0 = Secure. Target: **VS-ADP**. |
+| **Recon Error** | **Category A: Query Geometry**. | Geometric divergence ($1 - \text{CosSim}$) between plaintext query vector and noisy query vector. |
 | **MIA** | **Category B: Membership Inference**. | 0.5 = Random (Ideal). Target: **HE-Lite**. |
 | **ScoreInf** | **Category B: Score Inference**. | Identifiability of docs from raw scores. |
 | **Recon CosSim** | **Category B: Embedding Reconstruction**. | Content restoration via score probing. |

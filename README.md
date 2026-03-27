@@ -25,7 +25,9 @@ Priva-Fed uses a **Hub-and-Spoke** topology to simulate real-world data silos:
 2. **HE-Lite (Homomorphic Encryption)**:
    - Uses CKKS (via TenSEAL) to encrypt similarity scores in transit.
    - Blocks Membership Inference (MIA) and Embedding Reconstruction attacks (Accuracy dropped to **0.500/0.000**).
-3. **P2P Masking (Secure Aggregation)**:
+3. **LSH (Locality Sensitive Hashing)**:
+   - Maps embeddings to 64-bit binary SimHash signatures as a fast, non-cryptographic baseline for score protection.
+4. **P2P Masking (Secure Aggregation)**:
    - Ensures the Hub only sees the global score sum, not individual node contributions.
 
 ---

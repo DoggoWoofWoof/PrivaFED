@@ -19,6 +19,7 @@ We have developed a domain-agnostic federated semantic retrieval system that ena
 
 ### Phase 4: Adversarial Evaluation & Benchmarking (Completed)
 - **Attack Suite**: Implemented KnownTemplate, MultiQuery, Membership Inference (MIA), Score Inference, and Embedding Reconstruction attacks.
+- **Evaluation Metrics**: Comprehensive evaluation measuring specific performance (Recall, MRR, NDCG, Rank Correlation) and defense outcomes (ASR, MIA Accuracy, Recon CosSim, and geometric divergence via Recon Error).
 - **Defense Matrix**: Successfully mapped the resilience of all privacy modes across 5 different attack vectors.
 - **Outcome**: Verified that only the combined pipeline provides defense-in-depth across both query-based and score-based attack categories.
 
