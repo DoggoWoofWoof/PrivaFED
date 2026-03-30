@@ -84,14 +84,16 @@ class PrivacyAdapter:
     """
     The central interface for applying privacy transformations to the retrieval pipeline.
     
-    Supports VS-ADP noise, HE score encryption, LSH binary hashing, and 'combined' mode.
+    Supports VS-ADP noise, HE score encryption, LSH binary hashing,
+    LSH+ADP, and 'combined' mode.
     """
 
     def __init__(self, mode='plaintext', noise_scale=0.0, lsh_bits=64,
                  epsilon_limit=10.0, delta=1e-5):
         """
         Args:
-            mode: Mechanism to use ('plaintext', 'vs_adp', 'he_lite', 'lsh', 'combined').
+            mode: Mechanism to use ('plaintext', 'vs_adp', 'he_lite',
+                'lsh', 'lsh_adp', 'combined').
             noise_scale: Target noise-to-signal L2 ratio (standardized to 384-dim signal).
             lsh_bits: Signature length for semantic hashing.
             epsilon_limit: Max privacy budget allowed before the system halts.
@@ -108,7 +110,7 @@ class PrivacyAdapter:
         if self.mode in ('he_lite', 'combined'):
             self._init_he()
         
-        if self.mode == 'lsh':
+        if self.mode in ('lsh', 'lsh_adp'):
             self._init_lsh()
 
     def get_budget_status(self):
@@ -175,7 +177,7 @@ class PrivacyAdapter:
         sigma_per_dim = self.noise_scale / np.sqrt(d)
         
         # Log to accountant if budget tracking is enabled
-        if account and self.mode in ('vs_adp', 'combined'):
+        if account and self.mode in ('vs_adp', 'lsh_adp', 'combined'):
             self.accountant.accumulate_query(sigma_per_dim)
 
         noise = np.random.normal(0, sigma_per_dim, query_vector.shape).astype('float32')
