@@ -3,7 +3,7 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
-venv/
+.venv/
 env/
 data/synthetic/
 # Keep results as evidence, they are small CSVs
