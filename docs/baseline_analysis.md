@@ -18,10 +18,10 @@ The finalized plaintext baseline (without any privacy mechanisms) serves as our 
 
 | Metric | Value |
 | :--- | :--- |
-| **Recall@1** | 0.900 |
-| **Recall@10** | 1.000 |
-| **Mean Latency** | 293ms |
+| **Recall@1** | 0.860 |
+| **Recall@10** | 0.940 |
+| **Mean Latency** | 189ms |
 | **Bandwidth** | 7.3KB |
 
 ### Key Takeaway: Neutrality is Utility
-Early experiments showed that semantic "noise" in query templates (e.g., using terms like "suspicious activity") biased results. Switching to neutral, entity-focused templates (e.g., "account {id} history") was the single most effective way to reach the 90% R@1 ceiling.
+Early experiments showed that semantic "noise" in query templates (e.g., using terms like "suspicious activity") biased results. Switching to neutral, entity-focused templates (e.g., "account {id} history") was the single most effective way to reach the final 86% R@1 plaintext ceiling.

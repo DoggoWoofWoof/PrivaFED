@@ -37,14 +37,14 @@ This document captures the complete and prioritized future work list emerging fr
 
 ### Category 3: Your Specific New Idea — LSH + ADP Combination
 
-This was not previously benchmarked. You currently have these modes: `plaintext`, `VS-ADP`, `HE-Lite`, `LSH`, and `Combined` (VS-ADP + HE + P2P). **LSH + ADP combined mode is missing.** 
+This is now benchmarked. You currently have these modes: `plaintext`, `VS-ADP`, `HE-Lite`, `LSH`, `LSH+ADP`, and `Combined` (VS-ADP + HE + P2P).
 
 The intuition is interesting — LSH reduces the information content of the query (binary fingerprint instead of 384 floats), then VS-ADP adds noise on top of the already-compressed representation. This might give a better privacy-utility tradeoff than either alone because:
 - LSH already discards fine-grained directional information
 - The noise only needs to obscure the coarser binary projection space
 - Bandwidth stays at 7.3KB (unlike HE which is 21MB)
 
-*To implement*: route the query through SimHash first, then add Gaussian noise to the binary projection values (or to the dense vector before hashing, which is more principled). Benchmark against the full attack suite. The hypothesis is ASR below combined's 0.672 at lower bandwidth cost than HE. This is genuinely worth testing as it could be a third operating point on the privacy-utility-bandwidth curve.
+*To extend*: route the query through SimHash first, then add Gaussian noise to the binary projection values (or to the dense vector before hashing, which is more principled). Benchmark against the full attack suite. A follow-up hypothesis is ASR below combined's 0.636 (5-run mean at ns=2.0) at lower bandwidth cost than HE. This is genuinely worth testing as it could be a third operating point on the privacy-utility-bandwidth curve.
 
 ### Category 4: Security Limitations That Need Formal Treatment
 

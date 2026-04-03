@@ -22,7 +22,7 @@ Glossary and mathematical definitions of performance indicators:
 - **Privacy**: ASR, MIA, ScoreInf, Reconstruction CosSim.
 
 ### 4. [Baseline Analysis](baseline_analysis.md)
-Historical context of how the 90.0% R@1 "Gold Standard" was achieved through Hybrid RRF and Cross-Encoder re-ranking.
+Historical context of how the 86.0% R@1 plaintext "Gold Standard" was achieved through Hybrid RRF and Cross-Encoder re-ranking.
 
 ### 5. [Project Status Report](project_status_report.md)
 High-level summary of phase completions, key findings, and future work.
