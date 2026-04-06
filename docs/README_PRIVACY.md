@@ -27,6 +27,12 @@ Historical context of how the 86.0% R@1 plaintext "Gold Standard" was achieved t
 ### 5. [Project Status Report](project_status_report.md)
 High-level summary of phase completions, key findings, and future work.
 
+### 6. [Attack Types and How They Work](attack_types_and_how_they_work.md)
+Detailed breakdown of implemented attacks and their workflows:
+- Category A query-vector attacks (template fingerprinting, adaptive averaging).
+- Category B score-side attacks (MIA, score inference, embedding reconstruction).
+- Defense mapping to VS-ADP, HE-Lite, LSH, and secure aggregation.
+
 ---
 
 ## 🏗️ Technical Implementation
