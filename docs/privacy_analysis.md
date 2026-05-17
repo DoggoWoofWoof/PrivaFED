@@ -45,4 +45,4 @@ We define two primary categories of adversaries based on the interface they inte
 ---
 
 ## 3. Privacy-Utility Paradox
-The empirical evaluation reveals that cryptographic protection (HE) comes with a significant **bandwidth cost (~2,968x overhead)**. Conversely, noise-based protection (VS-ADP) is cheap but requires careful calibration to avoid significant **utility loss**. The **Combined Pipeline** is the recommended operating point, balancing these trade-offs to provide comprehensive defense.
+The empirical evaluation reveals that cryptographic protection (HE) comes with a significant **bandwidth cost (~2,964x overhead)**. Conversely, noise-based protection (VS-ADP) is cheap but requires careful calibration to avoid significant **utility loss**. The **Combined Pipeline** is the recommended operating point for score-side confidentiality, but adaptive query averaging still requires operational controls (rate limiting/chaff) to sustain query-side resistance.

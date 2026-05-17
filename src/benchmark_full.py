@@ -3,7 +3,7 @@ Priva-Fed Comprehensive Benchmark v4 — Defense Matrix.
 
 Evaluates the full attack-defense matrix:
 
-  Modes:    Plaintext | VS-ADP | HE-Lite | Combined (VS-ADP + HE)
+    Modes:    Plaintext | VS-ADP | LSH | LSH+ADP | HE-Lite | Combined (VS-ADP + HE)
   Attacks:  Query Fingerprint (Cat-A) | Score Inference (Cat-B)
             Membership Inference (Cat-B) | Embedding Reconstruction (Cat-B)
 
@@ -93,7 +93,7 @@ def run_experiment(hub, gt, ref_node, pa, template_attack,
         plain_vec = ref_node.encode_query(q)
         # FIX: account=False to avoid double-counting budget during attack simulation
         atk_vec = (pa.add_noise_to_vector(plain_vec.copy(), account=False)
-                   if mode in ('vs_adp', 'combined') and pa else plain_vec.copy())
+               if mode in ('vs_adp', 'lsh_adp', 'combined') and pa else plain_vec.copy())
 
         s1, _ = template_attack.attack(atk_vec, item['target_org'],
                                         item['target_file'])
@@ -327,6 +327,8 @@ def main():
         configs.append(('vs_adp', ns, f'vs_adp_ns{ns}'))
     configs.append(('he_lite', 0.0, 'he_lite'))
     configs.append(('lsh', 0.0, 'lsh_64bit'))
+    for ns in NOISE_SWEEP:
+        configs.append(('lsh_adp', ns, f'lsh_adp_ns{ns}'))
     for ns in [1.0, 2.0]:  # Combined at key noise levels
         configs.append(('combined', ns, f'combined_ns{ns}'))
 
@@ -342,6 +344,8 @@ def main():
                 pa = PrivacyAdapter(mode='he_lite')
             elif mode == 'lsh':
                 pa = PrivacyAdapter(mode='lsh', lsh_bits=64)
+            elif mode == 'lsh_adp':
+                pa = PrivacyAdapter(mode='lsh_adp', noise_scale=ns, lsh_bits=64)
             elif mode == 'combined':
                 pa = PrivacyAdapter(mode='combined', noise_scale=ns)
 
@@ -374,6 +378,7 @@ def main():
         ('vs_adp', PrivacyAdapter(mode='vs_adp', noise_scale=2.0)),
         ('he_lite', PrivacyAdapter(mode='he_lite')),
         ('lsh', PrivacyAdapter(mode='lsh', lsh_bits=64)),
+        ('lsh_adp', PrivacyAdapter(mode='lsh_adp', noise_scale=2.0, lsh_bits=64)),
         ('combined', PrivacyAdapter(mode='combined', noise_scale=2.0)),
     ]
 
@@ -397,7 +402,7 @@ def main():
         
         for i, item in enumerate(test_slice):
             # Query Attack (Cat-A)
-            if mode_label in ('vs_adp', 'combined'):
+            if mode_label in ('vs_adp', 'lsh_adp', 'combined'):
                 nv = pa.add_noise_to_vector(plain_vecs[i].copy(), account=False)
             else:
                 nv = plain_vecs[i].copy()

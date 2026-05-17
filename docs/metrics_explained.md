@@ -15,7 +15,7 @@ These metrics measure how much semantic information is preserved after privacy-p
 | **Semantic Drift** | Jaccard overlap between baseline top-10 and noisy top-10. | Measures how much the *entire result set* shifted. |
 
 > [!NOTE]
-> **HE Drift Anomaly**: In `HE-Lite` and `Combined` modes, Semantic Drift is significantly lower (e.g., ~0.2) than in plaintext. This is a **structural artifact** of the hybrid retrieval protocol. To manage encryption latency, these modes use BM25-guided pre-filtering for candidate selection. The resulting drift reflects this protocol-level shift in ranking order, rather than a privacy-induced degradation of semantic relevance.
+> **HE Drift Anomaly**: In `HE-Lite` and `Combined` modes, Semantic Drift is significantly lower (e.g., ~0.33) than in plaintext. This is a **structural artifact** of the hybrid retrieval protocol. To manage encryption latency, these modes use BM25-guided pre-filtering for candidate selection. The resulting drift reflects this protocol-level shift in ranking order, rather than a privacy-induced degradation of semantic relevance.
 
 ## 2. Privacy Metrics (Attack Resilience)
 
@@ -42,7 +42,7 @@ These metrics measure the empirical strength of the system against specific adve
 
 | Feature | Performance | Mechanism |
 | :--- | :--- | :--- |
-| **Target Utility** | **R@1=1.000** | Combined (ns=2.0) |
+| **Target Utility** | **R@1=0.940** | Combined / HE-Lite |
 | **Ideal Privacy** | **MIA=0.500** | HE-Lite / Combined |
-| **Adaptive Defense** | **ASR=0.672** | VS-ADP (ns=2.0) |
+| **Adaptive Defense (single query)** | **ASR=0.676** | VS-ADP (ns=2.0) |
 | **Bandwidth Cost** | **21,667 KB** | Encrypted modes |

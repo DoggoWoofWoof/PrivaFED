@@ -70,7 +70,7 @@ class HubOrchestrator:
         t0 = time.time()
         self._reset()
         mode = self.pa.mode if self.pa else 'plaintext'
-        uses_noise = mode in ('vs_adp', 'combined')
+        uses_noise = mode in ('vs_adp', 'lsh_adp', 'combined')
         uses_he = mode in ('he_lite', 'combined')
 
         # 1. Budget Verification

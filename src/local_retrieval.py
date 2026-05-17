@@ -221,7 +221,7 @@ class LocalNode:
             
             ce_scored_indices.sort(key=lambda x: x[1], reverse=True)
             dense_indices = np.array([[x[0] for x in ce_scored_indices]])
-        elif pa and pa.mode == 'lsh':
+        elif pa and pa.mode in ('lsh', 'lsh_adp'):
             # SimHash similarity lookup
             if self.lsh_signatures is None:
                 self.lsh_signatures = pa.compute_lsh(self.embeddings)

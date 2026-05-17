@@ -4,8 +4,8 @@ Welcome to the **Priva-Fed** framework. This repository provides a domain-agnost
 
 ## 🚀 Final Project Achievement
 The benchmarking phase is **Completed & Verified**. High-utility privacy-preserving retrieval is possible:
-- **Combined Mode (ns=2.0)**: Provides defense-in-depth across all 4 attack categories.
-- **Utility Preservation**: Achieves **R@1 = 1.000**, outperforming the plaintext baseline through BM25-guided hybrid pre-filtering.
+- **Combined Mode (ns=2.0)**: Fully protects score-side channels (MIA/ScoreInf/Recon) while reducing single-query fingerprint ASR.
+- **Utility Preservation**: Achieves **R@1 = 0.940** under encrypted scoring, compared to a **0.860** plaintext baseline.
 - **Paper Ready**: Finalized empirical tables and adversarial assessments are documented in `docs/benchmark_results.md`.
 
 ---
@@ -21,7 +21,7 @@ Priva-Fed uses a **Hub-and-Spoke** topology to simulate real-world data silos:
 ## 🛡️ Privacy Mechanisms
 1. **VS-ADP (Vector-Space Approximate Differential Privacy)**:
    - Adds dimensionality-aware Gaussian noise to query embeddings.
-   - Successfully reduces Query Fingerprinting Attack Success Rate (ASR) to **0.672**.
+   - Reduces Query Fingerprinting Attack Success Rate (ASR) into the **0.676-0.720** range at high noise levels.
 2. **HE-Lite (Homomorphic Encryption)**:
    - Uses CKKS (via TenSEAL) to encrypt similarity scores in transit.
    - Blocks Membership Inference (MIA) and Embedding Reconstruction attacks (Accuracy dropped to **0.500/0.000**).
@@ -33,7 +33,7 @@ Priva-Fed uses a **Hub-and-Spoke** topology to simulate real-world data silos:
 ---
 
 ## 📈 Key Findings
-- **The Unstructured Privacy Paradox**: Protecting relevance scores cryptographically (HE) introduces a **2,968x bandwidth overhead** identifying a key practical bottleneck.
+- **The Unstructured Privacy Paradox**: Protecting relevance scores cryptographically (HE) introduces an approximately **2,964x bandwidth overhead**, identifying a key practical bottleneck.
 - **Empirical Resistance**: High-noise regimes ($\epsilon \approx 20,000$) are framed as **empirical adaptive resistance** via Hub rate-limiting, rather than formal DP guarantees.
 
 ---

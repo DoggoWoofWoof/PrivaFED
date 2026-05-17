@@ -1,0 +1,533 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+% ──── Packages ────────────────────────────────────────────────────────
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+\usepackage{balance}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{subcaption}
+\usepackage[ruled,vlined,linesnumbered]{algorithm2e}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+% ──── Document ────────────────────────────────────────────────────────
+\begin{document}
+
+\title{Priva-Fed: Benchmarking Privacy-Utility Trade-offs in Federated Semantic Retrieval for Unstructured Data}
+
+\author{
+\IEEEauthorblockN{Author Name}
+\IEEEauthorblockA{
+\textit{Department of Computer Science} \\
+\textit{University Name}\\
+City, Country \\
+email@university.edu}
+}
+
+\maketitle
+
+% ══════════════════════════════════════════════════════════════════════
+%                          ABSTRACT
+% ══════════════════════════════════════════════════════════════════════
+\begin{abstract}
+Federated retrieval systems enable organizations to collaboratively search unstructured documents without centralizing sensitive data. However, privacy leakage through query embeddings and relevance scores remains a critical open challenge. We present \textbf{Priva-Fed}, a domain-agnostic benchmarking framework that quantifies the trade-offs between retrieval utility, computational cost, and privacy strength in federated Search-Augmented Generation (SAG) environments. Priva-Fed implements and evaluates four privacy mechanisms---Vector-Space Approximate Differential Privacy (VS-ADP), Homomorphic Encryption (HE-Lite via CKKS), Locality Sensitive Hashing (LSH), and Secure Aggregation (P2P Masking)---against a comprehensive adversarial suite comprising query fingerprinting, membership inference, score inference, and embedding reconstruction attacks. Our empirical evaluation on a synthetic financial narrative corpus across three federated nodes reveals three key findings: (1) the \textit{Combined} pipeline (VS-ADP + HE-Lite + P2P Masking) achieves Recall@1 of 0.940, \emph{surpassing} the plaintext baseline of 0.860, while fully blocking all score-side attacks; (2) cryptographic score protection via CKKS introduces a $\sim$2,964$\times$ bandwidth overhead, identifying a critical practical bottleneck we term the \textit{Unstructured Privacy Paradox}; and (3) noise-based query protection is vulnerable to adaptive multi-query averaging attacks, necessitating operational rate-limiting controls. Our results demonstrate that high-utility privacy-preserving federated retrieval is achievable, but requires a layered defense-in-depth strategy combining cryptographic, statistical, and operational controls.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Federated Learning, Privacy-Preserving Retrieval, Homomorphic Encryption, Differential Privacy, Retrieval-Augmented Generation, Secure Aggregation
+\end{IEEEkeywords}
+
+% ══════════════════════════════════════════════════════════════════════
+%                        I. INTRODUCTION
+% ══════════════════════════════════════════════════════════════════════
+\section{Introduction}
+\label{sec:intro}
+
+The proliferation of Retrieval-Augmented Generation (RAG) systems has enabled powerful question-answering and document synthesis capabilities over large corpora~\cite{lewis2020retrieval}. However, deploying RAG across organizational boundaries---where data is distributed across multiple silos due to regulatory, competitive, or privacy constraints---introduces significant privacy challenges. In a federated retrieval setting, a central hub coordinates queries across decentralized data nodes, but this exposes two critical attack surfaces: (1)~\textit{query embeddings} transmitted from the hub to nodes may reveal the user's search intent, and (2)~\textit{relevance scores} returned from nodes to the hub may leak information about the underlying document corpus.
+
+Existing approaches to privacy-preserving retrieval have explored differential privacy for query protection~\cite{dwork2006calibrating} and homomorphic encryption for secure computation~\cite{gentry2009fully}, but few systems provide a unified empirical evaluation of these mechanisms under a realistic federated topology. Furthermore, the unique challenges of \textit{unstructured} text retrieval---where embeddings are high-dimensional and scores carry rich semantic information---have not been systematically benchmarked.
+
+In this paper, we present \textbf{Priva-Fed}, a modular benchmarking framework that addresses these gaps. Our contributions are:
+
+\begin{enumerate}
+    \item A \textbf{hub-and-spoke federated retrieval architecture} implementing a three-pass protocol (candidate gathering, secure score aggregation, content retrieval) with modular privacy adapters.
+    
+    \item A \textbf{comprehensive privacy mechanism suite} comprising VS-ADP (vector-space Gaussian noise with R\'{e}nyi DP accounting), HE-Lite (CKKS homomorphic encryption via TenSEAL), LSH (64-bit SimHash), and P2P secure aggregation with zero-sum masking.
+    
+    \item An \textbf{adversarial evaluation framework} with five attack implementations spanning two threat categories: query-vector attacks (Known Template fingerprinting, Multi-Query Averaging) and score-side attacks (Membership Inference, Score Inference, Embedding Reconstruction).
+    
+    \item \textbf{Empirical identification} of the \textit{Unstructured Privacy Paradox}: cryptographic score protection achieves ideal privacy guarantees but introduces prohibitive bandwidth overhead ($\sim$2,964$\times$), while noise-based protection is computationally cheap but vulnerable to adaptive attackers.
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════
+%                     II. RELATED WORK
+% ══════════════════════════════════════════════════════════════════════
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Privacy-Preserving Information Retrieval}
+
+Privacy-preserving information retrieval has been studied along several axes. Searchable encryption schemes~\cite{song2000practical,curtmola2006searchable} enable encrypted keyword search but do not extend naturally to dense semantic retrieval. Private Information Retrieval (PIR) protocols~\cite{chor1995private} allow a client to retrieve an item from a database without the server learning which item was retrieved, but impose significant computational overhead unsuitable for real-time retrieval.
+
+\subsection{Differential Privacy in NLP}
+
+Differential privacy has been incorporated into NLP systems at various levels. DP-SGD~\cite{abadi2016deep} provides training-time guarantees but does not protect against inference-time query leakage. Recent work on local differential privacy for text~\cite{feyisetan2020privacy} applies calibrated noise to word embeddings, though the impact on retrieval-specific metrics such as Recall@$k$ and MRR has not been comprehensively studied in federated settings.
+
+\subsection{Homomorphic Encryption for ML}
+
+Fully homomorphic encryption (FHE)~\cite{gentry2009fully} and its approximate variant CKKS~\cite{cheon2017homomorphic} enable computation on encrypted data. CryptoNets~\cite{gilad2018cryptonets} demonstrated neural network inference over encrypted inputs. However, the application of HE to federated \textit{retrieval} scoring---where encrypted dot products must be computed across distributed indices---remains largely unexplored in the literature.
+
+\subsection{Federated Learning and Retrieval}
+
+Federated learning~\cite{mcmahan2017communication} has primarily focused on model training rather than inference-time retrieval. Secure aggregation protocols~\cite{bonawitz2017practical} protect individual model updates but do not address the unique challenge of aggregating relevance scores across data silos while preserving both query confidentiality and score privacy.
+
+% ══════════════════════════════════════════════════════════════════════
+%                   III. SYSTEM ARCHITECTURE
+% ══════════════════════════════════════════════════════════════════════
+\section{System Architecture}
+\label{sec:architecture}
+
+Priva-Fed employs a \textbf{hub-and-spoke} topology to simulate real-world organizational data silos. The architecture consists of three principal components: the Hub (client-side orchestrator), Local Nodes (organization-specific data stores), and Privacy Adapters (modular defense layers).
+
+\subsection{Hub Orchestrator}
+
+The Hub coordinates the multi-pass retrieval protocol without ever accessing raw text data. It manages query broadcasting, chaff generation for $k$-anonymity, and final result aggregation. The Hub enforces privacy budgets via the integrated \texttt{PrivacyAccountant} and can block queries that exceed the configured $\varepsilon$ limit.
+
+\subsection{Local Nodes}
+
+Each Local Node maintains an organization's private document collection with two co-located search indices:
+
+\begin{itemize}
+    \item \textbf{Dense Index}: A FAISS~\cite{johnson2019billion} index of 384-dimensional embeddings from \texttt{all-MiniLM-L6-v2}~\cite{reimers2019sentence}, enabling fast approximate nearest-neighbor search via inner product similarity.
+    \item \textbf{Sparse Index}: A BM25-Okapi index for precise keyword matching, critical for entity-level queries (e.g., account identifiers, transaction references).
+\end{itemize}
+
+Results from both indices are merged using \textbf{Reciprocal Rank Fusion (RRF)}~\cite{cormack2009reciprocal} with $K_{\text{RRF}}=60$, and optionally re-ranked by a cross-encoder (\texttt{ms-marco-TinyBERT-L-2-v2}) for final precision.
+
+\subsection{Three-Pass Federated Protocol}
+
+The retrieval protocol proceeds in three passes:
+
+\begin{enumerate}
+    \item \textbf{Pass 1 --- Candidate Gathering}: The Hub broadcasts the (optionally noised/encrypted) query to all nodes. Each node performs hybrid retrieval locally and returns top-$k$ candidate descriptors (organization ID, filename) without raw scores.
+    
+    \item \textbf{Pass 2 --- Secure Score Aggregation}: Nodes score the union candidate set and apply zero-sum P2P masks before returning results. The Hub can only observe the global aggregate score, not individual node contributions.
+    
+    \item \textbf{Pass 3 --- Content Retrieval}: Raw document content is fetched \textit{only} for the finalized top-$k$ results, minimizing data exposure.
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════
+%                   IV. PRIVACY MECHANISMS
+% ══════════════════════════════════════════════════════════════════════
+\section{Privacy Mechanisms}
+\label{sec:privacy}
+
+Priva-Fed implements a defense-in-depth strategy with four complementary privacy mechanisms targeting distinct attack surfaces.
+
+\subsection{VS-ADP: Vector-Space Approximate Differential Privacy}
+
+To protect query embeddings from fingerprinting attacks, we apply dimensionality-aware Gaussian noise prior to query broadcast. For an embedding vector $\mathbf{q} \in \mathbb{R}^d$ (where $d=384$), the noised query is:
+
+\begin{equation}
+    \tilde{\mathbf{q}} = \text{normalize}\left(\mathbf{q} + \boldsymbol{\eta}\right), \quad \boldsymbol{\eta} \sim \mathcal{N}\left(\mathbf{0}, \sigma^2 \mathbf{I}_d\right)
+\end{equation}
+
+where $\sigma = \text{noise\_scale} / \sqrt{d}$ ensures that the noise-to-signal ratio remains constant regardless of embedding dimensionality. The noised vector is re-normalized to the unit hypersphere to preserve the geometric properties required for cosine similarity retrieval.
+
+\subsubsection{Privacy Accounting via R\'{e}nyi DP}
+
+We track cumulative privacy budget consumption using R\'{e}nyi Differential Privacy (RDP)~\cite{mironov2017renyi}, which provides tighter composition bounds than standard $(\varepsilon, \delta)$-DP. For a Gaussian mechanism with sensitivity $\Delta f = 2.0$ (the maximal change in dot-product similarity between unit vectors), the RDP guarantee at order $\alpha$ for a single query is:
+
+\begin{equation}
+    \varepsilon_{\text{RDP}}(\alpha) = \frac{\alpha \cdot \Delta f^2}{2\sigma^2}
+\end{equation}
+
+Composition across $T$ queries proceeds linearly in RDP space, and the final $(\varepsilon, \delta)$-DP guarantee is obtained by minimizing over the $\alpha$ grid:
+
+\begin{equation}
+    \varepsilon = \min_{\alpha} \left[\sum_{t=1}^{T} \varepsilon_{\text{RDP}}^{(t)}(\alpha) + \frac{\log(1/\delta)}{\alpha - 1}\right]
+\end{equation}
+
+\textbf{Empirical Framing.} At the high noise scales used in our experiments ($\text{ns}=2.0$), the accumulated $\varepsilon \approx 21{,}235$ per query operates far outside the formal DP regime ($\varepsilon < 10$). Consequently, we frame VS-ADP at these noise levels as providing \textit{empirical adaptive attack resistance} via rate-limiting rather than formal differential privacy guarantees.
+
+\subsection{HE-Lite: Homomorphic Encryption via CKKS}
+
+To protect relevance scores from transit interception, we employ the CKKS approximate homomorphic encryption scheme~\cite{cheon2017homomorphic} via the TenSEAL library. Key design parameters include:
+
+\begin{itemize}
+    \item \textbf{Polynomial modulus degree}: 8192
+    \item \textbf{Coefficient modulus bit sizes}: $[60, 40, 40, 60]$
+    \item \textbf{Global scale}: $2^{40}$
+\end{itemize}
+
+In encrypted mode, the Hub sends an encrypted query vector $\text{Enc}(\mathbf{q})$ to each node, which computes the encrypted dot product $\text{Enc}(\mathbf{q}) \cdot \mathbf{d}_i$ for each candidate document $\mathbf{d}_i$ in the ciphertext domain. The encrypted scores are returned to the Hub, which can aggregate them but cannot observe individual plaintext values.
+
+\subsection{LSH: Locality Sensitive Hashing}
+
+As a lightweight, non-cryptographic baseline, we implement 64-bit SimHash~\cite{charikar2002similarity} for score obfuscation. Dense embeddings are projected through a fixed random matrix $\mathbf{P} \in \mathbb{R}^{d \times b}$ (with $b=64$) and binarized:
+
+\begin{equation}
+    h(\mathbf{q}) = \text{sign}(\mathbf{q} \cdot \mathbf{P})
+\end{equation}
+
+Similarity is approximated via Hamming distance rather than exact cosine scores. LSH reduces the information content of transmitted representations but does not provide cryptographic confidentiality guarantees.
+
+\subsection{Secure Aggregation: P2P Zero-Sum Masking}
+
+To prevent the Hub from identifying individual node contributions, we implement a pairwise masking protocol. For each query session, each pair of nodes $(i, j)$ generates a deterministic random mask from a pre-shared secret $s_{ij}$:
+
+\begin{equation}
+    \mathbf{m}_{ij} = \text{PRG}(s_{ij} \| \text{query\_id})
+\end{equation}
+
+Node $i$ adds $\mathbf{m}_{ij}$ and node $j$ subtracts $\mathbf{m}_{ij}$, ensuring that $\sum_i \mathbf{m}_i = \mathbf{0}$. The Hub observes only the sum of all (masked) scores, from which individual contributions are information-theoretically hidden under honest participation.
+
+% ══════════════════════════════════════════════════════════════════════
+%                      V. THREAT MODEL
+% ══════════════════════════════════════════════════════════════════════
+\section{Threat Model and Attack Suite}
+\label{sec:threat}
+
+We define two primary adversary categories based on the information surface they exploit.
+
+\subsection{Category A: Query-Vector Interception}
+
+\textbf{Attacker Goal.} Reconstruct the user's natural language query or identify the specific entity being searched.
+
+\textbf{Attacker Capabilities.} The adversary can observe query embeddings on the Hub-to-Node communication channel.
+
+\subsubsection{A1: Known Template Attack}
+
+The attacker pre-computes a fingerprint index of all plausible query templates from the corpus. Given an intercepted (potentially noised) query vector $\tilde{\mathbf{q}}$, the attacker performs nearest-neighbor search against the fingerprint index:
+
+\begin{equation}
+    \hat{q} = \arg\max_{\mathbf{f}_i \in \mathcal{F}} \cos(\tilde{\mathbf{q}}, \mathbf{f}_i)
+\end{equation}
+
+\textbf{Metric:} Attack Success Rate (ASR@1, ASR@5).
+
+\subsubsection{A2: Multi-Query Averaging (Adaptive)}
+
+An adaptive adversary observes $N$ independent noisy realizations of the same logical query and averages them to reduce noise variance:
+
+\begin{equation}
+    \bar{\mathbf{q}}_N = \text{normalize}\left(\frac{1}{N}\sum_{i=1}^{N} \tilde{\mathbf{q}}_i\right)
+\end{equation}
+
+Since $\text{Var}(\bar{\mathbf{q}}_N) \approx \text{Var}(\tilde{\mathbf{q}})/N$, the signal-to-noise ratio improves as $\sqrt{N}$, progressively defeating noise-based protection.
+
+\textbf{Metric:} ASR as a function of $N$.
+
+\subsection{Category B: Score and Transit Interception}
+
+\textbf{Attacker Goal.} Infer corpus membership, build relevance profiles, or reconstruct document embeddings from observed scores.
+
+\textbf{Attacker Capabilities.} The adversary is an honest-but-curious Hub that can observe aggregated scores.
+
+\subsubsection{B1: Membership Inference Attack (MIA)}
+
+The adversary monitors maximum similarity scores for member (in-corpus) and non-member queries, learning an optimal threshold to predict document presence:
+
+\begin{equation}
+    \hat{y} = \mathbb{1}[\max_j s_j \geq \tau^*]
+\end{equation}
+
+\textbf{Metric:} Classification accuracy (ideal defense: 0.500, i.e., random guess).
+
+\subsubsection{B2: Score Inference Attack}
+
+The adversary intercepts ranked (organization, filename, score) tuples and builds relevance profiles to identify target documents for each query.
+
+\textbf{Metric:} Profile accuracy (ScoreInf).
+
+\subsubsection{B3: Embedding Reconstruction Attack}
+
+A powerful probe-based attack where the adversary issues $n$ random probe vectors $\{\mathbf{p}_i\}_{i=1}^{n}$ and observes the oracle response $s_i = \langle \mathbf{p}_i, \mathbf{d}_{\text{target}} \rangle$. The embedding is reconstructed via:
+
+\begin{equation}
+    \hat{\mathbf{d}} = \text{normalize}\left(\sum_{i=1}^{n} s_i \cdot \mathbf{p}_i\right)
+\end{equation}
+
+\textbf{Metric:} Reconstruction cosine similarity (ideal defense: 0.000).
+
+% ══════════════════════════════════════════════════════════════════════
+%                  VI. EXPERIMENTAL SETUP
+% ══════════════════════════════════════════════════════════════════════
+\section{Experimental Setup}
+\label{sec:setup}
+
+\subsection{Dataset: Synthetic Financial Narratives}
+
+We generate a synthetic corpus of 300 unstructured financial narratives (100 per organization) using template-based data generation with the Faker library. Each document contains embedded PII entities---account IDs (IBAN format), transaction UUIDs, names, IP addresses, and timestamps---rendered through five distinct narrative templates (analyst notes, incident reports, case summaries, internal memos, and fraud operations logs). Ground truth queries are derived by extracting embedded entities and constructing neutral, entity-focused search templates (e.g., ``account \{IBAN\} history'').
+
+\subsection{Retrieval Configuration}
+
+\begin{itemize}
+    \item \textbf{Dense Encoder}: \texttt{all-MiniLM-L6-v2} ($d=384$)
+    \item \textbf{Cross-Encoder}: \texttt{ms-marco-TinyBERT-L-2-v2}
+    \item \textbf{Fusion}: RRF with $K=60$
+    \item \textbf{Sparse Index}: BM25-Okapi
+    \item \textbf{Top-$k$}: 10
+\end{itemize}
+
+\subsection{Privacy Configurations}
+
+We evaluate six operating modes with varying noise scales:
+
+\begin{enumerate}
+    \item \textbf{Plaintext}: No privacy mechanisms (baseline).
+    \item \textbf{VS-ADP}: Gaussian noise at $\text{ns} \in \{0.1, 0.5, 1.0, 2.0\}$.
+    \item \textbf{HE-Lite}: CKKS-encrypted scoring only.
+    \item \textbf{LSH}: 64-bit SimHash scoring only.
+    \item \textbf{LSH+ADP}: SimHash with Gaussian noise at $\text{ns} \in \{0.1, 0.5, 1.0, 2.0\}$.
+    \item \textbf{Combined}: VS-ADP + HE-Lite + P2P Masking at $\text{ns} \in \{1.0, 2.0\}$.
+\end{enumerate}
+
+All experiments are repeated for $N=5$ independent runs. We report mean $\pm$ standard deviation for stochastic configurations.
+
+\subsection{Evaluation Metrics}
+
+\textbf{Utility Metrics:} Recall@1 (R@1), Recall@10 (R@10), Mean Reciprocal Rank (MRR), NDCG@10, Semantic Drift (Jaccard overlap of top-10 sets vs. baseline), and Rank Correlation (Spearman $\rho$).
+
+\textbf{Privacy Metrics:} ASR@1, ASR@5 (query fingerprinting), MIA Accuracy (membership inference), Score Inference accuracy (ScoreInf), and Embedding Reconstruction cosine similarity (Recon CosSim).
+
+\textbf{System Metrics:} End-to-end latency (ms) and bandwidth per query (KB).
+
+% ══════════════════════════════════════════════════════════════════════
+%                    VII. RESULTS
+% ══════════════════════════════════════════════════════════════════════
+\section{Results}
+\label{sec:results}
+
+\subsection{Privacy-Utility Benchmark}
+
+Table~\ref{tab:main_results} presents the main privacy-utility benchmark results across all operating modes.
+
+\begin{table*}[t]
+\centering
+\caption{Privacy-Utility Benchmark Results (5-Run Averages). BW = Bandwidth per query.}
+\label{tab:main_results}
+\begin{tabular}{@{}llccccccc@{}}
+\toprule
+\textbf{Mode} & \textbf{NS} & \textbf{R@1} & \textbf{MRR} & \textbf{NDCG@10} & \textbf{Drift} & \textbf{ASR@1} & \textbf{Lat. (ms)} & \textbf{BW (KB)} \\
+\midrule
+Plaintext & --- & 0.860$\pm$0.000 & 0.893$\pm$0.000 & 0.905$\pm$0.000 & 1.000$\pm$0.000 & 1.000$\pm$0.000 & 189 & 7.3 \\
+\midrule
+VS-ADP & 0.1 & 0.852$\pm$0.020 & 0.891$\pm$0.009 & 0.905$\pm$0.006 & 0.938$\pm$0.006 & 1.000$\pm$0.000 & 198 & 7.3 \\
+VS-ADP & 0.5 & 0.832$\pm$0.037 & 0.876$\pm$0.026 & 0.893$\pm$0.023 & 0.777$\pm$0.012 & 1.000$\pm$0.000 & 212 & 7.3 \\
+VS-ADP & 1.0 & 0.844$\pm$0.020 & 0.882$\pm$0.015 & 0.898$\pm$0.013 & 0.638$\pm$0.005 & 0.956$\pm$0.020 & 220 & 7.3 \\
+VS-ADP & 2.0 & 0.820$\pm$0.025 & 0.870$\pm$0.025 & 0.893$\pm$0.023 & 0.506$\pm$0.009 & 0.676$\pm$0.043 & 209 & 7.3 \\
+\midrule
+HE-Lite & --- & 0.940$\pm$0.000 & 0.967$\pm$0.000 & 0.975$\pm$0.000 & 0.328$\pm$0.000 & 1.000$\pm$0.000 & 2,146 & 21,667 \\
+\midrule
+LSH & --- & 0.840$\pm$0.000 & 0.898$\pm$0.000 & 0.919$\pm$0.000 & 0.440$\pm$0.000 & 1.000$\pm$0.000 & 203 & 7.3 \\
+LSH+ADP & 2.0 & 0.800$\pm$0.000 & 0.864$\pm$0.000 & 0.888$\pm$0.000 & 0.382$\pm$0.000 & 0.720$\pm$0.000 & 202 & 7.3 \\
+\midrule
+Combined & 1.0 & 0.940$\pm$0.000 & 0.967$\pm$0.000 & 0.975$\pm$0.000 & 0.328$\pm$0.000 & 0.972$\pm$0.020 & 2,065 & 21,667 \\
+\textbf{Combined} & \textbf{2.0} & \textbf{0.940$\pm$0.000} & \textbf{0.967$\pm$0.000} & \textbf{0.975$\pm$0.000} & \textbf{0.328$\pm$0.000} & \textbf{0.636$\pm$0.015} & \textbf{2,289} & \textbf{21,667} \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\textbf{Key Observations.} The Combined mode at $\text{ns}=2.0$ achieves R@1 = 0.940, which \textit{surpasses} the plaintext baseline of 0.860 by 9.3 percentage points. This counter-intuitive improvement is attributable to the BM25-guided candidate pre-filtering used in HE modes: by constraining the scoring candidates to BM25's top matches before encrypted cross-encoder re-ranking, the system concentrates computation on high-precision entity matches, effectively creating an ``ensemble effect'' that boosts top-1 accuracy.
+
+VS-ADP alone demonstrates graceful utility degradation, with R@1 declining from 0.860 (baseline) to 0.820 at the highest noise level ($\text{ns}=2.0$), a reduction of only 4.7\%. However, ASR@1 only reduces to 0.676 at $\text{ns}=2.0$---the attacker still succeeds approximately two-thirds of the time in a single-query scenario.
+
+\subsection{Defense Matrix}
+
+Table~\ref{tab:defense_matrix} presents the cross-mechanism defense evaluation against all four attack categories.
+
+\begin{table}[t]
+\centering
+\caption{Defense Matrix: Attack Success Across Privacy Modes. Lower values indicate stronger defense for all metrics except MIA (0.500 = ideal).}
+\label{tab:defense_matrix}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Mode} & \textbf{Query} & \textbf{MIA} & \textbf{Score} & \textbf{Recon} \\
+ & \textbf{ASR} & \textbf{Acc.} & \textbf{Inf.} & \textbf{CosSim} \\
+\midrule
+Plaintext & 1.000 & 1.000 & 0.860 & 0.593 \\
+VS-ADP & 0.720 & 1.000 & 0.820 & 0.581 \\
+HE-Lite & 1.000 & \textbf{0.500} & \textbf{0.000} & \textbf{0.000} \\
+LSH & 1.000 & 1.000 & 0.840 & 0.573 \\
+LSH+ADP & 0.740 & 1.000 & 0.800 & 0.592 \\
+\textbf{Combined} & \textbf{0.760} & \textbf{0.500} & \textbf{0.000} & \textbf{0.000} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The defense matrix reveals a clean separation of mechanism coverage:
+
+\begin{itemize}
+    \item \textbf{VS-ADP/LSH+ADP} defend against Category A (query fingerprinting) by reducing ASR from 1.000 to 0.720--0.740, but provide \textit{no protection} against Category B attacks (MIA = 1.000, Recon CosSim $>$ 0.57).
+    
+    \item \textbf{HE-Lite} completely blocks Category B attacks (MIA = 0.500, ScoreInf = 0.000, Recon = 0.000) but provides \textit{no protection} against Category A (ASR = 1.000).
+    
+    \item \textbf{Combined} achieves the strongest overall profile: it fully blocks score-side attacks while reducing query fingerprinting ASR to 0.760.
+\end{itemize}
+
+This validates the \textbf{defense-in-depth hypothesis}: no single mechanism is sufficient; the combined pipeline provides complementary coverage across both threat categories.
+
+\subsection{Adaptive Attack Resistance}
+
+Table~\ref{tab:adaptive} presents the adaptive multi-query averaging attack results at $\text{ns}=2.0$.
+
+\begin{table}[t]
+\centering
+\caption{Adaptive Attack: ASR vs. Number of Averaged Observations ($\text{ns}=2.0$, 50 queries).}
+\label{tab:adaptive}
+\begin{tabular}{@{}cccc@{}}
+\toprule
+\textbf{N obs.} & \textbf{ns=0.5} & \textbf{ns=1.0} & \textbf{ns=2.0} \\
+\midrule
+1 & 1.000 & 0.940 & 0.680 \\
+5 & 1.000 & 1.000 & 0.980 \\
+10 & 1.000 & 1.000 & 1.000 \\
+20 & 1.000 & 1.000 & 1.000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Even at the highest noise level ($\text{ns}=2.0$), averaging just 5 observations recovers ASR to 0.980, and 10 observations achieve ASR = 1.000. This demonstrates that \textbf{noise-based query protection alone is fundamentally insufficient} against an adaptive adversary with repeated access. Operational controls---rate-limiting, query budgets, and chaff injection---are essential complements to statistical defenses.
+
+\subsection{The Unstructured Privacy Paradox}
+
+Fig.~\ref{fig:paradox} (implicit in Table~\ref{tab:main_results}) illustrates the bandwidth-privacy trade-off that we term the \textit{Unstructured Privacy Paradox}. Privacy modes that provide complete score-side confidentiality (HE-Lite and Combined) incur a bandwidth overhead of:
+
+\begin{equation}
+    \text{Overhead} = \frac{21{,}667 \text{ KB}}{7.3 \text{ KB}} \approx 2{,}964\times
+\end{equation}
+
+This overhead arises directly from the serialized size of CKKS ciphertext blobs. Each encrypted scalar score requires approximately 235 KB, compared to 32 bytes for a plaintext floating-point value. This represents a fundamental tension: the high-dimensional nature of semantic embeddings and the continuous-valued scores they produce require heavyweight cryptographic protection that may be impractical for latency-sensitive applications.
+
+\subsection{HE Correctness Verification}
+
+To ensure that CKKS approximation errors do not compromise retrieval accuracy, we verified that encrypted dot products match plaintext results within tolerance:
+
+\begin{equation}
+    |s_{\text{plain}} - s_{\text{HE}}| = 1.42 \times 10^{-6} < 10^{-4}
+\end{equation}
+
+This confirms that the CKKS scheme preserves sufficient numerical precision for reliable relevance ranking.
+
+% ══════════════════════════════════════════════════════════════════════
+%                     VIII. ANALYSIS
+% ══════════════════════════════════════════════════════════════════════
+\section{Analysis and Discussion}
+\label{sec:analysis}
+
+\subsection{Why Combined Mode Outperforms Plaintext}
+
+The counter-intuitive finding that Combined mode (R@1=0.940) outperforms Plaintext (R@1=0.860) merits examination. In plaintext mode, the dense FAISS index searches all 100 documents per node, and the resulting rankings reflect the full dense similarity landscape. In HE-Lite and Combined modes, encrypted dot products are computationally expensive, so the system pre-filters candidates via BM25 (top 10 per node). This BM25 pre-filtering acts as a high-precision entity-matching stage that surfaces exact keyword matches before the cross-encoder re-ranks. For entity-focused queries (``account \{IBAN\} history''), this substantially improves top-1 accuracy. The corresponding Semantic Drift of $\sim$0.328 reflects that the \textit{overall} ranking order diverges from the dense baseline, even as the top-1 result is more often correct.
+
+\subsection{Epsilon Interpretation}
+
+At $\text{ns}=2.0$ with $d=384$, the per-dimension standard deviation is $\sigma = 2.0/\sqrt{384} \approx 0.102$. With sensitivity $\Delta f = 2.0$, the per-query RDP cost at order $\alpha$ is $\alpha \cdot (2.0)^2 / (2 \cdot 0.102^2) \approx 192\alpha$. After conversion, a single query accumulates $\varepsilon \approx 21{,}235$ at $\delta = 10^{-5}$. This is orders of magnitude above the conventional DP threshold of $\varepsilon \leq 10$, confirming that the protection should be interpreted as \textit{empirical attack resistance} rather than formal DP guarantees. The practical implication is that the Budget-Aware Hub's rate-limiting capability---blocking queries after $\varepsilon$ exceeds a configured limit---is the primary defense mechanism against repeated querying, not the noise itself.
+
+\subsection{LSH as a Lightweight Alternative}
+
+LSH provides an interesting operating point: at 7.3 KB bandwidth (identical to plaintext), it achieves R@1 = 0.840 with Drift = 0.440 and zero latency overhead. However, it offers no score-side protection (MIA = 1.000, Recon = 0.573). The LSH+ADP combination at $\text{ns}=2.0$ reduces ASR to 0.720 while maintaining R@1 = 0.800, providing a low-cost privacy profile suitable for non-adversarial deployment scenarios where computational overhead is the primary constraint.
+
+\subsection{Limitations}
+
+\textbf{Scale.} The current evaluation uses 300 documents across 3 nodes. Main conference submissions would require evaluation on established benchmarks (e.g., MS-MARCO) with 10,000+ documents across 10+ nodes.
+
+\textbf{SOTA Comparison.} We do not directly benchmark against existing privacy-preserving retrieval systems (e.g., PRADA, SecureBERT). Our contribution is the benchmarking \textit{framework} rather than a claim of state-of-the-art performance.
+
+\textbf{Pass 1 Leakage.} Candidate identifiers in Pass 1 remain visible to the Hub prior to masking. Over many queries, the Hub could statistically fingerprint corpus composition from nomination frequency patterns.
+
+\textbf{Formal DP Guarantees.} The high $\varepsilon$ values at practical noise levels mean VS-ADP provides empirical resistance rather than formal differential privacy.
+
+% ══════════════════════════════════════════════════════════════════════
+%                     IX. CONCLUSION
+% ══════════════════════════════════════════════════════════════════════
+\section{Conclusion}
+\label{sec:conclusion}
+
+We have presented Priva-Fed, a comprehensive benchmarking framework for evaluating privacy-utility trade-offs in federated semantic retrieval over unstructured data. Our empirical evaluation demonstrates that:
+
+\begin{enumerate}
+    \item \textbf{High-utility private retrieval is achievable}: The Combined pipeline (VS-ADP + HE-Lite + P2P Masking) maintains R@1 = 0.940 while fully blocking score-side attacks (MIA = 0.500, ScoreInf = 0.000, Recon = 0.000).
+    
+    \item \textbf{The Unstructured Privacy Paradox is real}: Cryptographic score protection introduces a $\sim$2,964$\times$ bandwidth overhead, representing a fundamental bottleneck for real-time federated semantic search.
+    
+    \item \textbf{Defense-in-depth is essential}: No single mechanism covers both query-side and score-side attack surfaces. Layered defenses combining cryptographic, statistical, and operational controls are necessary.
+    
+    \item \textbf{Adaptive attacks require operational controls}: Noise-based query protection is defeated by averaging $\geq$10 observations, making rate-limiting and chaff injection critical operational requirements.
+\end{enumerate}
+
+\subsection{Future Work}
+
+Key directions for extending this work include: (1) scaling to production-sized corpora (MS-MARCO, 10,000+ documents, 10+ nodes); (2) direct comparison against PRADA and SecureBERT; (3) formal top-$k$ ranking sensitivity derivation for tighter DP guarantees; (4) distribution-matched chaff generation for provably indistinguishable cover traffic; and (5) threshold secret sharing for dynamic node participation.
+
+% ══════════════════════════════════════════════════════════════════════
+%                       REFERENCES
+% ══════════════════════════════════════════════════════════════════════
+\bibliographystyle{IEEEtran}
+
+\begin{thebibliography}{00}
+
+\bibitem{lewis2020retrieval}
+P. Lewis, E. Perez, A. Piktus, F. Petroni, V. Karpukhin, N. Goyal, H. K\"{u}ttler, M. Lewis, W.-T. Yih, T. Rockt\"{a}schel, S. Riedel, and D. Kiela, ``Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks,'' in \textit{Proc. NeurIPS}, 2020.
+
+\bibitem{dwork2006calibrating}
+C. Dwork, F. McSherry, K. Nissim, and A. Smith, ``Calibrating Noise to Sensitivity in Private Data Analysis,'' in \textit{Proc. TCC}, 2006, pp. 265--284.
+
+\bibitem{gentry2009fully}
+C. Gentry, ``Fully Homomorphic Encryption Using Ideal Lattices,'' in \textit{Proc. STOC}, 2009, pp. 169--178.
+
+\bibitem{cheon2017homomorphic}
+J. H. Cheon, A. Kim, M. Kim, and Y. Song, ``Homomorphic Encryption for Arithmetic of Approximate Numbers,'' in \textit{Proc. ASIACRYPT}, 2017, pp. 409--437.
+
+\bibitem{song2000practical}
+D. X. Song, D.~Wagner, and A.~Perrig, ``Practical Techniques for Searches on Encrypted Data,'' in \textit{Proc. IEEE S\&P}, 2000, pp. 44--55.
+
+\bibitem{curtmola2006searchable}
+R. Curtmola, J. Garay, S. Kamara, and R. Ostrovsky, ``Searchable Symmetric Encryption: Improved Definitions and Efficient Constructions,'' in \textit{Proc. ACM CCS}, 2006, pp. 79--88.
+
+\bibitem{chor1995private}
+B. Chor, O. Goldreich, E. Kushilevitz, and M. Sudan, ``Private Information Retrieval,'' in \textit{Proc. FOCS}, 1995, pp. 41--50.
+
+\bibitem{abadi2016deep}
+M. Abadi, A. Chu, I. Goodfellow, H. B. McMahan, I. Mironov, K. Talwar, and L. Zhang, ``Deep Learning with Differential Privacy,'' in \textit{Proc. ACM CCS}, 2016, pp. 308--318.
+
+\bibitem{feyisetan2020privacy}
+O. Feyisetan, B. Balle, T. Drake, and T. Diethe, ``Privacy- and Utility-Preserving Textual Analysis via Calibrated Multivariate Perturbations,'' in \textit{Proc. WSDM}, 2020, pp. 178--186.
+
+\bibitem{gilad2018cryptonets}
+R. Gilad-Bachrach, N. Dowlin, K. Laine, K. Lauter, M. Naehrig, and J. Wernsing, ``CryptoNets: Applying Neural Networks to Encrypted Data,'' in \textit{Proc. ICML}, 2016, pp. 201--210.
+
+\bibitem{mcmahan2017communication}
+B. McMahan, E. Moore, D. Ramage, S. Hampson, and B. A. y~Arcas, ``Communication-Efficient Learning of Deep Networks from Decentralized Data,'' in \textit{Proc. AISTATS}, 2017.
+
+\bibitem{bonawitz2017practical}
+K. Bonawitz, V. Ivanov, B. Kreuter, A. Marcedone, H. B. McMahan, S. Patel, D. Ramage, A. Segal, and K. Seth, ``Practical Secure Aggregation for Privacy-Preserving Machine Learning,'' in \textit{Proc. ACM CCS}, 2017, pp. 1175--1191.
+
+\bibitem{mironov2017renyi}
+I. Mironov, ``R\'{e}nyi Differential Privacy,'' in \textit{Proc. IEEE CSF}, 2017, pp. 263--275.
+
+\bibitem{johnson2019billion}
+J. Johnson, M. Douze, and H. J\'{e}gou, ``Billion-Scale Similarity Search with GPUs,'' \textit{IEEE Trans. Big Data}, vol. 7, no. 3, pp. 535--547, 2021.
+
+\bibitem{reimers2019sentence}
+N. Reimers and I. Gurevych, ``Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks,'' in \textit{Proc. EMNLP-IJCNLP}, 2019, pp. 3982--3992.
+
+\bibitem{cormack2009reciprocal}
+G. V. Cormack, C. L. A. Clarke, and S. B\"{u}ttcher, ``Reciprocal Rank Fusion Outperforms Condorcet and Individual Rank Learning Methods,'' in \textit{Proc. SIGIR}, 2009, pp. 758--759.
+
+\bibitem{charikar2002similarity}
+M. S. Charikar, ``Similarity Estimation Techniques from Rounding Algorithms,'' in \textit{Proc. STOC}, 2002, pp. 380--388.
+
+\end{thebibliography}
+
+\end{document}

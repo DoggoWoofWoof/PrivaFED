@@ -22,10 +22,16 @@ Glossary and mathematical definitions of performance indicators:
 - **Privacy**: ASR, MIA, ScoreInf, Reconstruction CosSim.
 
 ### 4. [Baseline Analysis](baseline_analysis.md)
-Historical context of how the 90.0% R@1 "Gold Standard" was achieved through Hybrid RRF and Cross-Encoder re-ranking.
+Historical context of how the 86.0% R@1 plaintext "Gold Standard" was achieved through Hybrid RRF and Cross-Encoder re-ranking.
 
 ### 5. [Project Status Report](project_status_report.md)
 High-level summary of phase completions, key findings, and future work.
+
+### 6. [Attack Types and How They Work](attack_types_and_how_they_work.md)
+Detailed breakdown of implemented attacks and their workflows:
+- Category A query-vector attacks (template fingerprinting, adaptive averaging).
+- Category B score-side attacks (MIA, score inference, embedding reconstruction).
+- Defense mapping to VS-ADP, HE-Lite, LSH, and secure aggregation.
 
 ---
 
